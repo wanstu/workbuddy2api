@@ -1,2 +1,5 @@
 -r requirements.txt
+# PyInstaller 6.16 runtime hook is incompatible with setuptools 71+ on Python < 3.12.
+# Keep this build-only pin until the PyInstaller hook no longer imports missing backports.
+setuptools==70.0.0
 pyinstaller==6.16.0
