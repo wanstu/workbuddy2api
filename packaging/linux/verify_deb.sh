@@ -142,7 +142,7 @@ sudo dpkg -r "$package"
 [ ! -e /usr/bin/workbuddy2api ] || fail "binary remained after remove"
 [ ! -e /lib/systemd/system/workbuddy2api.service ] || fail "service unit remained after remove"
 [ -f "$config" ] || fail "config should be preserved by remove"
-[ -f "$data_dir/ci-preserve-marker" ] || fail "data should be preserved by remove"
+sudo test -f "$data_dir/ci-preserve-marker" || fail "data should be preserved by remove"
 if systemctl is-active --quiet "$service"; then
   fail "service is still active after remove"
 fi
@@ -160,6 +160,6 @@ sudo dpkg --purge "$package"
 [ ! -e /usr/bin/workbuddy2api ] || fail "binary remained after purge"
 [ ! -e /lib/systemd/system/workbuddy2api.service ] || fail "service unit remained after purge"
 [ ! -e /etc/workbuddy2api ] || fail "config directory remained after purge"
-[ -f "$data_dir/ci-preserve-marker" ] || fail "application data should be preserved by purge"
+sudo test -f "$data_dir/ci-preserve-marker" || fail "application data should be preserved by purge"
 
 echo "Linux DEB lifecycle verification passed."
