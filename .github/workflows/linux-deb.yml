@@ -55,7 +55,7 @@ jobs:
               . /etc/workbuddy2api/workbuddy2api.env
               set +a
               export ADMIN_HOST=127.0.0.1 ADMIN_PORT=8791 HOME=/var/lib/workbuddy2api
-              /usr/bin/workbuddy2api >/tmp/workbuddy2api.log 2>&1 &
+              /usr/bin/workbuddy2api run --host 127.0.0.1 --port 8791 >/tmp/workbuddy2api.log 2>&1 &
               pid=$!
               trap "kill $pid >/dev/null 2>&1 || true" EXIT
               i=0
