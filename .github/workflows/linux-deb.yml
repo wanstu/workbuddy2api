@@ -2,6 +2,7 @@ name: Build Linux deb
 
 on:
   workflow_dispatch:
+  pull_request:
   push:
     tags:
       - "v*"
