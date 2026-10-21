@@ -97,8 +97,24 @@ bad_code="$(curl --silent --output /dev/null --write-out '%{http_code}' -F "user
 [ "$bad_code" = "401" ] || fail "wrong password should return 401"
 
 db="$data_dir/workbuddy.db"
-[ -s "$db" ] || fail "SQLite database was not created"
+if [ ! -f "$db" ]; then
+  sudo ls -la "$data_dir" >&2 || true
+  fail "SQLite database file was not created at $db"
+fi
 [ "$(stat -c '%U:%G' "$db")" = "workbuddy2api:workbuddy2api" ] || fail "SQLite owner is incorrect"
+DB_PATH="$db" python - <<'PY'
+import os
+import sqlite3
+
+connection = sqlite3.connect(os.environ["DB_PATH"])
+try:
+    table_count = connection.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table'"
+    ).fetchone()[0]
+    assert table_count > 0, "SQLite database has no tables"
+finally:
+    connection.close()
+PY
 
 password_before="$admin_password"
 echo 'CI_PRESERVE_MARKER=linux-deb-upgrade' | sudo tee -a "$config" >/dev/null
