@@ -36,6 +36,11 @@ echo "== package metadata =="
 [ "$(field Package)" = "$package" ] || fail "unexpected package name"
 [ "$(field Version)" = "$version" ] || fail "unexpected package version"
 [ "$(field Architecture)" = "amd64" ] || fail "unexpected architecture"
+installed_size="$(field Installed-Size)"
+case "$installed_size" in
+  ''|*[!0-9]*) fail "Installed-Size must be a positive integer" ;;
+esac
+[ "$installed_size" -gt 0 ] || fail "Installed-Size must be greater than zero"
 field Depends | grep -q "libc6 (>= 2.35)" || fail "libc dependency missing"
 field Depends | grep -q "ca-certificates" || fail "ca-certificates dependency missing"
 field Depends | grep -q "adduser" || fail "adduser dependency missing"

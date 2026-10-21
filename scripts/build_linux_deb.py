@@ -58,12 +58,22 @@ def changelog_text(pkg_version: str) -> str:
 """
 
 
-def control_text(pkg_version: str) -> str:
+def installed_size_kib(stage: Path) -> int:
+    total_bytes = sum(
+        path.stat().st_size
+        for path in stage.rglob("*")
+        if path.is_file() and "DEBIAN" not in path.relative_to(stage).parts
+    )
+    return max(1, (total_bytes + 1023) // 1024)
+
+
+def control_text(pkg_version: str, installed_size: int) -> str:
     return f"""Package: workbuddy2api
 Version: {pkg_version}
 Section: net
 Priority: optional
 Architecture: amd64
+Installed-Size: {installed_size}
 Maintainer: WorkBuddy2API contributors <noreply@github.com>
 Depends: libc6 (>= 2.35), ca-certificates, adduser
 Homepage: https://github.com/xiaofan6ya/workbuddy2api
@@ -130,7 +140,10 @@ def main() -> None:
     changelog.write_bytes(gzip.compress(changelog_text(pkg_version).encode("utf-8"), mtime=0))
     changelog.chmod(0o644)
 
-    (debian / "control").write_text(control_text(pkg_version), encoding="utf-8")
+    (debian / "control").write_text(
+        control_text(pkg_version, installed_size_kib(stage)),
+        encoding="utf-8",
+    )
     for name in ("postinst", "prerm", "postrm"):
         copy_file(PACKAGING / name, debian / name, 0o755)
 
