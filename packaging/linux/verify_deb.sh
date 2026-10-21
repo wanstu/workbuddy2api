@@ -97,12 +97,13 @@ bad_code="$(curl --silent --output /dev/null --write-out '%{http_code}' -F "user
 [ "$bad_code" = "401" ] || fail "wrong password should return 401"
 
 db="$data_dir/workbuddy.db"
-if [ ! -f "$db" ]; then
+if ! sudo test -f "$db"; then
   sudo ls -la "$data_dir" >&2 || true
   fail "SQLite database file was not created at $db"
 fi
-[ "$(stat -c '%U:%G' "$db")" = "workbuddy2api:workbuddy2api" ] || fail "SQLite owner is incorrect"
-DB_PATH="$db" python - <<'PY'
+[ "$(sudo stat -c '%U:%G' "$db")" = "workbuddy2api:workbuddy2api" ] || fail "SQLite owner is incorrect"
+python_path="$(command -v python)"
+sudo env DB_PATH="$db" "$python_path" - <<'PY'
 import os
 import sqlite3
 
