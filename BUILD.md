@@ -113,7 +113,7 @@ dist/WorkBuddy2API-<version>-linux-amd64.deb.sha256
 
 构建脚本先使用临时 SQLite 数据库执行运行时检查，再用 PyInstaller 冻结 Python 和应用依赖，最后通过 `dpkg-deb` 生成安装包。DEB 内包含：
 
-- `/usr/bin/workbuddy2api`：独立服务程序；
+- `/usr/bin/workbuddy2api`：Linux CLI，提供 `service start/restart/status/stop`，并包含 systemd 使用的内部服务入口；
 - `/lib/systemd/system/workbuddy2api.service`：systemd 服务；
 - `/usr/share/workbuddy2api/workbuddy2api.env.example`：配置示例。
 

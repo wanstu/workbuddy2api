@@ -67,18 +67,14 @@ sudo apt-get install -y "$deb"
 command -v workbuddy2api >/dev/null || fail "installed binary not on PATH"
 [ "$(workbuddy2api --version)" = "$version" ] || fail "binary version mismatch"
 
-echo "== direct CLI must not fall back to insecure development defaults =="
-set +e
-manual_output="$(timeout 5 workbuddy2api --host 127.0.0.1 --port 8792 2>&1)"
-manual_status=$?
-set -e
-[ "$manual_status" -ne 0 ] || fail "plain CLI unexpectedly started without readable package config"
-printf '%s\n' "$manual_output" | grep -q 'installed configuration exists but is not readable' || {
-  printf '%s\n' "$manual_output" >&2
-  fail "plain CLI did not explain that package config is private"
-}
-printf '%s\n' "$manual_output" | grep -q 'ADMIN_JWT_SECRET 未设置' && fail "plain CLI fell back to weak JWT defaults"
-printf '%s\n' "$manual_output" | grep -q "Can't connect to MySQL" && fail "plain CLI fell back to MySQL defaults"
+echo "== packaged CLI help =="
+cli_help="$(workbuddy2api -h)"
+printf '%s\n' "$cli_help" | grep -q 'service' || fail "CLI help does not list service commands"
+printf '%s\n' "$cli_help" | grep -q 'run' || fail "CLI help does not list foreground run command"
+plain_help="$(workbuddy2api)"
+printf '%s\n' "$plain_help" | grep -q 'service' || fail "plain CLI should display help"
+printf '%s\n' "$plain_help" | grep -q 'ADMIN_JWT_SECRET 未设置' && fail "plain CLI must not start the server"
+printf '%s\n' "$plain_help" | grep -q "Can't connect to MySQL" && fail "plain CLI must not start the server"
 
 getent passwd workbuddy2api >/dev/null || fail "service user missing"
 getent group workbuddy2api >/dev/null || fail "service group missing"
@@ -95,9 +91,21 @@ sudo grep -q '^ADMIN_GATEWAY_LIMIT_BACKEND=memory$' "$config" || fail "memory ra
 systemctl is-enabled --quiet "$service" || fail "service is not enabled"
 systemctl is-active --quiet "$service" || fail "service is not active"
 systemctl cat "$service" | grep -q '^User=workbuddy2api$' || fail "service does not run as dedicated user"
-systemctl cat "$service" | grep -q '^ExecStart=/usr/bin/workbuddy2api$' || fail "service ExecStart is incorrect"
+systemctl cat "$service" | grep -q '^ExecStart=/usr/bin/workbuddy2api __serve$' || fail "service ExecStart is incorrect"
 
 wait_http
+
+echo "== service CLI wrapper =="
+workbuddy2api service status >/dev/null
+workbuddy2api service restart
+wait_http
+workbuddy2api service stop
+if systemctl is-active --quiet "$service"; then
+  fail "service CLI stop did not stop the service"
+fi
+workbuddy2api service start
+wait_http
+
 curl --fail --silent "$base_url/static/console.css" >/dev/null
 curl --fail --silent "$base_url/api/app/icon" >/dev/null
 if sudo journalctl -u "$service" --no-pager | grep -E 'Traceback|ModuleNotFoundError|Failed to execute script'; then
@@ -118,11 +126,11 @@ bad_code="$(curl --silent --output /dev/null --write-out '%{http_code}' -F "user
 echo "== direct CLI with explicit readable config =="
 cli_config="$(mktemp)"
 cli_log="$(mktemp)"
-cli_db="/tmp/workbuddy2api-cli-$.db"
+cli_db="/tmp/workbuddy2api-cli-$$.db"
 sudo cat "$config" >"$cli_config"
 sed -i "s#^ADMIN_DATABASE_URL=.*#ADMIN_DATABASE_URL=sqlite:///$cli_db#" "$cli_config"
 chmod 0600 "$cli_config"
-workbuddy2api --config "$cli_config" --host 127.0.0.1 --port 8792 >"$cli_log" 2>&1 &
+workbuddy2api run --config "$cli_config" --host 127.0.0.1 --port 8792 >"$cli_log" 2>&1 &
 cli_pid=$!
 cli_ready=0
 for _ in $(seq 1 30); do

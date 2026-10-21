@@ -10,7 +10,7 @@ Group=workbuddy2api
 Environment=HOME=/var/lib/workbuddy2api
 EnvironmentFile=-/etc/workbuddy2api/workbuddy2api.env
 WorkingDirectory=/var/lib/workbuddy2api
-ExecStart=/usr/bin/workbuddy2api
+ExecStart=/usr/bin/workbuddy2api __serve
 Restart=on-failure
 RestartSec=5s
 TimeoutStopSec=30s

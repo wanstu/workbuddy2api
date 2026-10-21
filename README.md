@@ -190,7 +190,7 @@ Android 后台稳定运行需要允许通知、后台运行及取消电池优化
 
 ```bash
 sudo apt install ./WorkBuddy2API-<version>-linux-amd64.deb
-sudo systemctl status workbuddy2api
+workbuddy2api service status
 ```
 
 首次安装会创建专用的 `workbuddy2api` 系统用户，并生成随机后台密码与 JWT 密钥。配置和数据分别保存在：
@@ -206,12 +206,19 @@ sudo systemctl status workbuddy2api
 sudo cat /etc/workbuddy2api/workbuddy2api.env
 ```
 
-访问 `http://服务器IP:8790/admin`。升级时直接安装新版本 DEB；程序文件会更新，但 `/etc/workbuddy2api/` 配置和 `/var/lib/workbuddy2api/` 数据会保留。服务由 systemd 管理：
+访问 `http://服务器IP:8790/admin`。升级时直接安装新版本 DEB；程序文件会更新，但 `/etc/workbuddy2api/` 配置和 `/var/lib/workbuddy2api/` 数据会保留。
+
+安装后的命令行已封装 systemd 服务管理：
 
 ```bash
-sudo systemctl restart workbuddy2api
-sudo journalctl -u workbuddy2api -f
+workbuddy2api -h
+workbuddy2api service start
+workbuddy2api service restart
+workbuddy2api service status
+workbuddy2api service stop
 ```
+
+`start/restart/stop` 在普通用户下会通过 `sudo systemctl` 执行；`status` 可直接查看。需要前台调试时可使用 `workbuddy2api run --config PATH`。服务日志仍可通过 `sudo journalctl -u workbuddy2api -f` 查看。
 
 ## Linux Docker 部署
 
