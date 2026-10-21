@@ -8,7 +8,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 
 from desktop.common import VERSION
 
@@ -32,6 +32,24 @@ def _default_port() -> int:
     if not 1 <= port <= 65535:
         raise SystemExit(f"ADMIN_PORT must be between 1 and 65535, got {port}")
     return port
+
+
+def _external_command_env() -> dict[str, str]:
+    """Return an environment safe for launching host-system executables.
+
+    PyInstaller temporarily prepends its extraction directory to
+    LD_LIBRARY_PATH. That is required for the frozen process itself, but must
+    not leak into systemctl/sudo or those host binaries may load the bundled
+    libcrypto/libssl instead of the distro versions.
+    """
+    env = os.environ.copy()
+    original = env.pop("LD_LIBRARY_PATH_ORIG", None)
+    if original:
+        env["LD_LIBRARY_PATH"] = original
+    else:
+        env.pop("LD_LIBRARY_PATH", None)
+    env.pop("LD_PRELOAD", None)
+    return env
 
 
 def _load_config(path: str | None) -> None:
@@ -105,9 +123,60 @@ def _systemctl(action: str) -> int:
         command.insert(0, sudo)
 
     try:
-        return subprocess.run(command, check=False).returncode
+        return subprocess.run(
+            command,
+            check=False,
+            env=_external_command_env(),
+        ).returncode
     except KeyboardInterrupt:
         return 130
+
+
+def _print_credentials() -> int:
+    if not SYSTEM_CONFIG.exists():
+        raise SystemExit(
+            f"installed configuration was not found: {SYSTEM_CONFIG}\n"
+            "Install the Debian package first."
+        )
+    if not os.access(SYSTEM_CONFIG, os.R_OK):
+        raise SystemExit(
+            f"configuration is not readable: {SYSTEM_CONFIG}\n"
+            "Run: sudo workbuddy2api __credentials"
+        )
+
+    values = dotenv_values(SYSTEM_CONFIG)
+    username = values.get("ADMIN_USERNAME") or ""
+    password = values.get("ADMIN_PASSWORD") or ""
+    host = values.get("ADMIN_HOST") or "127.0.0.1"
+    port = values.get("ADMIN_PORT") or "8790"
+    display_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
+
+    if not username or not password:
+        raise SystemExit(f"ADMIN_USERNAME/ADMIN_PASSWORD are missing from {SYSTEM_CONFIG}")
+
+    print(f"Admin URL: http://{display_host}:{port}/admin")
+    print(f"Username: {username}")
+    print(f"Password: {password}")
+    print(f"Config: {SYSTEM_CONFIG}")
+    return 0
+
+
+def _credentials() -> int:
+    if os.access(SYSTEM_CONFIG, os.R_OK):
+        return _print_credentials()
+
+    sudo = shutil.which("sudo")
+    if not sudo:
+        raise SystemExit(
+            f"reading {SYSTEM_CONFIG} requires administrator privileges; run: "
+            "sudo workbuddy2api credentials"
+        )
+
+    return subprocess.run(
+        [sudo, sys.executable, "__credentials"],
+        check=False,
+        env=_external_command_env(),
+    ).returncode
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -133,6 +202,11 @@ def _build_parser() -> argparse.ArgumentParser:
     ):
         service_actions.add_parser(action, help=help_text)
 
+    commands.add_parser(
+        "credentials",
+        help="show the generated admin URL, username and password",
+    )
+
     run = commands.add_parser("run", help="run in the foreground (advanced/debugging)")
     run.add_argument(
         "--config",
@@ -147,10 +221,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
-    # Internal entry used only by the packaged systemd unit. Keep it out of -h
-    # so users manage the daemon through the stable "service" interface.
+    # Internal entries used only by the package itself. Keep them out of -h.
     if len(sys.argv) >= 2 and sys.argv[1] == "__serve":
         return _run_server()
+    if len(sys.argv) >= 2 and sys.argv[1] == "__credentials":
+        return _print_credentials()
 
     parser = _build_parser()
     args = parser.parse_args()
@@ -161,6 +236,9 @@ def main() -> int:
 
     if args.command == "service":
         return _systemctl(args.service_action)
+
+    if args.command == "credentials":
+        return _credentials()
 
     if args.command == "run":
         return _run_server(

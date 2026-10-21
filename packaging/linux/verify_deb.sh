@@ -73,6 +73,7 @@ printf '%s\n' "$cli_help" | grep -q 'service' || fail "CLI help does not list se
 printf '%s\n' "$cli_help" | grep -q 'run' || fail "CLI help does not list foreground run command"
 plain_help="$(workbuddy2api)"
 printf '%s\n' "$plain_help" | grep -q 'service' || fail "plain CLI should display help"
+printf '%s\n' "$plain_help" | grep -q 'credentials' || fail "CLI help does not list credentials"
 printf '%s\n' "$plain_help" | grep -q 'ADMIN_JWT_SECRET 未设置' && fail "plain CLI must not start the server"
 printf '%s\n' "$plain_help" | grep -q "Can't connect to MySQL" && fail "plain CLI must not start the server"
 
@@ -88,6 +89,12 @@ sudo grep -Eq '^ADMIN_JWT_SECRET=[0-9a-f]{64}$' "$config" || fail "random JWT se
 sudo grep -q '^ADMIN_DATABASE_URL=sqlite:////var/lib/workbuddy2api/workbuddy.db$' "$config" || fail "SQLite default is incorrect"
 sudo grep -q '^ADMIN_GATEWAY_LIMIT_BACKEND=memory$' "$config" || fail "memory rate-limit default is missing"
 
+echo "== credentials CLI =="
+credentials_output="$(workbuddy2api credentials)"
+printf '%s\n' "$credentials_output" | grep -q '^Admin URL: http://127.0.0.1:8790/admin$' || fail "credentials URL is incorrect"
+printf '%s\n' "$credentials_output" | grep -q '^Username: admin$' || fail "credentials username is incorrect"
+printf '%s\n' "$credentials_output" | grep -q '^Password: ' || fail "credentials password is missing"
+
 systemctl is-enabled --quiet "$service" || fail "service is not enabled"
 systemctl is-active --quiet "$service" || fail "service is not active"
 systemctl cat "$service" | grep -q '^User=workbuddy2api$' || fail "service does not run as dedicated user"
@@ -96,7 +103,13 @@ systemctl cat "$service" | grep -q '^ExecStart=/usr/bin/workbuddy2api __serve$' 
 wait_http
 
 echo "== service CLI wrapper =="
-workbuddy2api service status >/dev/null
+status_output="$(LD_LIBRARY_PATH="/tmp/workbuddy2api-fake-mei" LD_LIBRARY_PATH_ORIG="" workbuddy2api service status 2>&1)" || status_rc=$?
+status_rc="${status_rc:-0}"
+printf '%s\n' "$status_output" | grep -q 'OPENSSL_' && fail "service status leaked PyInstaller LD_LIBRARY_PATH into systemctl"
+[ "$status_rc" -eq 0 ] || {
+  printf '%s\n' "$status_output" >&2
+  fail "service status failed"
+}
 workbuddy2api service restart
 wait_http
 workbuddy2api service stop

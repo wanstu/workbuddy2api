@@ -42,34 +42,53 @@ jobs:
           version="$(python -c 'import json; print(json.load(open("desktop/version.json", encoding="utf-8"))["version"])')"
           bash packaging/linux/verify_deb.sh "dist/WorkBuddy2API-$version-linux-amd64.deb" "$version"
 
-      - name: Verify Debian 12 compatibility
+      - name: Verify Debian 12 and 13 compatibility
         shell: bash
         run: |
           version="$(python -c 'import json; print(json.load(open("desktop/version.json", encoding="utf-8"))["version"])')"
-          docker run --rm             -e EXPECTED_VERSION="$version"             -v "$PWD:/src:ro"             debian:12-slim             bash -lc '
-              set -e
-              apt-get update >/dev/null
-              apt-get install -y "/src/dist/WorkBuddy2API-$EXPECTED_VERSION-linux-amd64.deb" curl >/dev/null
-              test "$(/usr/bin/workbuddy2api --version)" = "$EXPECTED_VERSION"
-              set -a
-              . /etc/workbuddy2api/workbuddy2api.env
-              set +a
-              export ADMIN_HOST=127.0.0.1 ADMIN_PORT=8791 HOME=/var/lib/workbuddy2api
-              /usr/bin/workbuddy2api run --host 127.0.0.1 --port 8791 >/tmp/workbuddy2api.log 2>&1 &
-              pid=$!
-              trap "kill $pid >/dev/null 2>&1 || true" EXIT
-              i=0
-              until curl --fail --silent http://127.0.0.1:8791/admin >/dev/null; do
-                i=$((i+1))
-                if [ "$i" -ge 30 ]; then
-                  cat /tmp/workbuddy2api.log
+          for debian_version in 12 13; do
+            echo "== Debian $debian_version =="
+            docker run --rm               -e EXPECTED_VERSION="$version"               -v "$PWD:/src:ro"               "debian:$debian_version-slim"               bash -lc '
+                set -e
+                apt-get update >/dev/null
+                DEBIAN_FRONTEND=noninteractive apt-get install -y                   "/src/dist/WorkBuddy2API-$EXPECTED_VERSION-linux-amd64.deb"                   curl systemd >/dev/null
+
+                test "$(/usr/bin/workbuddy2api --version)" = "$EXPECTED_VERSION"
+
+                credentials_output="$(/usr/bin/workbuddy2api credentials)"
+                printf "%s\n" "$credentials_output" | grep -q "^Username: admin$"
+                printf "%s\n" "$credentials_output" | grep -q "^Password: "
+
+                set +e
+                status_output="$(LD_LIBRARY_PATH=/tmp/workbuddy2api-fake-mei LD_LIBRARY_PATH_ORIG=                   /usr/bin/workbuddy2api service status 2>&1)"
+                status_rc=$?
+                set -e
+                printf "%s\n" "$status_output"
+                if printf "%s\n" "$status_output" | grep -Eq "OPENSSL_|version .* not found|error while loading shared libraries"; then
+                  echo "systemctl inherited incompatible bundled libraries" >&2
                   exit 1
                 fi
-                sleep 1
-              done
-              curl --fail --silent http://127.0.0.1:8791/api/app/version |
-                grep -q "\"version\":\"$EXPECTED_VERSION\""
-            '
+
+                set -a
+                . /etc/workbuddy2api/workbuddy2api.env
+                set +a
+                export ADMIN_HOST=127.0.0.1 ADMIN_PORT=8791 HOME=/var/lib/workbuddy2api
+                /usr/bin/workbuddy2api run --host 127.0.0.1 --port 8791 >/tmp/workbuddy2api.log 2>&1 &
+                pid=$!
+                trap "kill $pid >/dev/null 2>&1 || true" EXIT
+                i=0
+                until curl --fail --silent http://127.0.0.1:8791/admin >/dev/null; do
+                  i=$((i+1))
+                  if [ "$i" -ge 30 ]; then
+                    cat /tmp/workbuddy2api.log
+                    exit 1
+                  fi
+                  sleep 1
+                done
+                curl --fail --silent http://127.0.0.1:8791/api/app/version |
+                  grep -q "\"version\":\"$EXPECTED_VERSION\""
+              '
+          done
 
       - uses: actions/upload-artifact@v4
         with:

@@ -186,7 +186,7 @@ Android 后台稳定运行需要允许通知、后台运行及取消电池优化
 
 ## Linux DEB 安装
 
-正式 Release 可提供适用于 **Debian 12 / Ubuntu 22.04+ x86_64** 的独立 `.deb`。安装包内置 Python 运行时和项目依赖，默认使用 SQLite 与进程内限流，目标机器无需额外安装 Python、pip、MySQL 或 Redis。
+正式 Release 可提供适用于 **Debian 12+ / Ubuntu 22.04+ x86_64** 的独立 `.deb`。安装包内置 Python 运行时和项目依赖，默认使用 SQLite 与进程内限流，目标机器无需额外安装 Python、pip、MySQL 或 Redis。
 
 ```bash
 sudo apt install ./WorkBuddy2API-<version>-linux-amd64.deb
@@ -200,11 +200,13 @@ workbuddy2api service status
 /var/lib/workbuddy2api/workbuddy.db
 ```
 
-使用 root 权限查看首次生成的后台登录信息：
+查看首次生成的后台地址、账号和密码：
 
 ```bash
-sudo cat /etc/workbuddy2api/workbuddy2api.env
+workbuddy2api credentials
 ```
+
+配置文件仍保存在 `/etc/workbuddy2api/workbuddy2api.env`，权限保持为 `root:root 0600`。
 
 访问 `http://服务器IP:8790/admin`。升级时直接安装新版本 DEB；程序文件会更新，但 `/etc/workbuddy2api/` 配置和 `/var/lib/workbuddy2api/` 数据会保留。
 
@@ -212,6 +214,7 @@ sudo cat /etc/workbuddy2api/workbuddy2api.env
 
 ```bash
 workbuddy2api -h
+workbuddy2api credentials
 workbuddy2api service start
 workbuddy2api service restart
 workbuddy2api service status
