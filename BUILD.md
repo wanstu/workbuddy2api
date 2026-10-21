@@ -120,3 +120,10 @@ dist/WorkBuddy2API-<version>-linux-amd64.deb.sha256
 首次安装由 `postinst` 创建 `workbuddy2api` 系统用户、`/etc/workbuddy2api/workbuddy2api.env`、随机后台密码/JWT 密钥和 `/var/lib/workbuddy2api` 数据目录。升级不会覆盖已有配置或 SQLite 数据。
 
 `.github/workflows/linux-deb.yml` 在 Ubuntu 22.04 上执行构建、Lint、安装、后台登录、真实 dpkg 升级、移除/重装/清除，并额外验证 Debian 12 与 Debian 13 兼容性、`credentials` 命令以及调用系统 `systemctl` 时不会继承 PyInstaller 的动态库路径。正式 `v*` Tag 仍由现有 `desktop-release.yml` 统一编排；只有 Windows 与 Linux 构建都成功后，才由同一个 Release job 一次性上传 EXE、DEB 与各自 SHA256，避免并发修改同一个 GitHub Release。
+
+
+### Fork Linux release tags
+
+Linux-only fork releases use tags such as `linux-v1.11.1-r1`. These tags point to the `feature/linux-deb` branch and do not require merging Linux packaging changes into `master`. The Linux workflow validates the package and publishes the DEB plus SHA256 as a prerelease.
+
+After installation, use `workbuddy2api doctor` for read-only diagnostics. It checks configuration permissions, the service user/data directory, systemd state, SQLite and the local HTTP endpoints without printing the admin password or JWT secret.

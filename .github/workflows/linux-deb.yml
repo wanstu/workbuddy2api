@@ -4,6 +4,9 @@ on:
   workflow_call:
   workflow_dispatch:
   pull_request:
+  push:
+    tags:
+      - "linux-v*"
 
 permissions:
   contents: read
@@ -22,6 +25,19 @@ jobs:
           cache-dependency-path: |
             requirements.txt
             requirements-linux-build.txt
+
+      - name: Verify Linux release tag matches app version
+        if: startsWith(github.ref, 'refs/tags/linux-v')
+        shell: bash
+        run: |
+          version="$(python -c 'import json; print(json.load(open("desktop/version.json", encoding="utf-8"))["version"])')"
+          case "$GITHUB_REF_NAME" in
+            "linux-v$version"|"linux-v$version"-*) ;;
+            *)
+              echo "Tag $GITHUB_REF_NAME does not match desktop/version.json version $version" >&2
+              exit 1
+              ;;
+          esac
 
       - name: Install build and package validation dependencies
         run: |
@@ -96,3 +112,22 @@ jobs:
           path: |
             dist/WorkBuddy2API-*-linux-amd64.deb
             dist/WorkBuddy2API-*-linux-amd64.deb.sha256
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/linux-v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: WorkBuddy2API-linux-amd64
+          path: dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          prerelease: true

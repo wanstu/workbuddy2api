@@ -2,10 +2,15 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import pwd
 import shutil
+import stat
 import subprocess
 import sys
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 from dotenv import dotenv_values, load_dotenv
@@ -15,6 +20,7 @@ from desktop.common import VERSION
 
 SYSTEM_CONFIG = Path("/etc/workbuddy2api/workbuddy2api.env")
 SERVICE_UNIT = "workbuddy2api.service"
+DATA_DIR = Path("/var/lib/workbuddy2api")
 _REQUIRED_RUNTIME_ENV = (
     "ADMIN_DATABASE_URL",
     "ADMIN_USERNAME",
@@ -35,13 +41,7 @@ def _default_port() -> int:
 
 
 def _external_command_env() -> dict[str, str]:
-    """Return an environment safe for launching host-system executables.
-
-    PyInstaller temporarily prepends its extraction directory to
-    LD_LIBRARY_PATH. That is required for the frozen process itself, but must
-    not leak into systemctl/sudo or those host binaries may load the bundled
-    libcrypto/libssl instead of the distro versions.
-    """
+    """Return an environment safe for launching host-system executables."""
     env = os.environ.copy()
     original = env.pop("LD_LIBRARY_PATH_ORIG", None)
     if original:
@@ -65,9 +65,6 @@ def _load_config(path: str | None) -> None:
         load_dotenv(config_path, override=False)
         return
 
-    # systemd loads EnvironmentFile before switching to the service user.
-    # In that case the private root-owned config does not need to be readable
-    # by the service process because the required values are already injected.
     if all(os.getenv(name) for name in _REQUIRED_RUNTIME_ENV):
         return
 
@@ -179,6 +176,161 @@ def _credentials() -> int:
     ).returncode
 
 
+def _doctor_line(ok: bool, label: str, detail: str = "") -> None:
+    prefix = "[OK]" if ok else "[FAIL]"
+    suffix = f" - {detail}" if detail else ""
+    print(f"{prefix} {label}{suffix}")
+
+
+def _doctor_root() -> int:
+    failures = 0
+
+    def check(ok: bool, label: str, detail: str = "") -> bool:
+        nonlocal failures
+        _doctor_line(ok, label, detail)
+        if not ok:
+            failures += 1
+        return ok
+
+    print(f"WorkBuddy2API doctor {VERSION}")
+    print()
+
+    binary = Path(sys.executable).resolve()
+    check(binary.exists(), "binary", str(binary))
+
+    config_ok = check(SYSTEM_CONFIG.is_file(), "config", str(SYSTEM_CONFIG))
+    values: dict[str, str | None] = {}
+    if config_ok:
+        try:
+            mode = stat.S_IMODE(SYSTEM_CONFIG.stat().st_mode)
+            st = SYSTEM_CONFIG.stat()
+            check(
+                st.st_uid == 0 and st.st_gid == 0 and mode == 0o600,
+                "config permissions",
+                f"uid={st.st_uid} gid={st.st_gid} mode={mode:04o}",
+            )
+            values = dict(dotenv_values(SYSTEM_CONFIG))
+            missing = [name for name in _REQUIRED_RUNTIME_ENV if not values.get(name)]
+            check(not missing, "required configuration", "complete" if not missing else f"missing: {', '.join(missing)}")
+        except Exception as exc:
+            check(False, "read configuration", str(exc))
+
+    try:
+        service_user = pwd.getpwnam("workbuddy2api")
+        check(True, "service user", f"uid={service_user.pw_uid}")
+    except KeyError:
+        service_user = None
+        check(False, "service user", "workbuddy2api user not found")
+
+    if DATA_DIR.exists():
+        data_stat = DATA_DIR.stat()
+        data_mode = stat.S_IMODE(data_stat.st_mode)
+        owner_ok = service_user is not None and data_stat.st_uid == service_user.pw_uid
+        check(owner_ok and data_mode == 0o750, "data directory", f"{DATA_DIR} mode={data_mode:04o}")
+    else:
+        check(False, "data directory", f"{DATA_DIR} does not exist")
+
+    systemctl = shutil.which("systemctl")
+    if not check(bool(systemctl), "systemctl", systemctl or "not found"):
+        print()
+        print(f"Doctor result: {failures} failure(s)")
+        return 1
+
+    env = _external_command_env()
+
+    def systemctl_ok(*args: str) -> tuple[bool, str]:
+        proc = subprocess.run(
+            [systemctl, *args],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            env=env,
+        )
+        return proc.returncode == 0, proc.stdout.strip()
+
+    enabled, enabled_out = systemctl_ok("is-enabled", SERVICE_UNIT)
+    check(enabled, "service enabled", enabled_out or ("yes" if enabled else "no"))
+
+    active, active_out = systemctl_ok("is-active", SERVICE_UNIT)
+    check(active, "service active", active_out or ("yes" if active else "no"))
+
+    show_proc = subprocess.run(
+        [systemctl, "show", SERVICE_UNIT, "--property=ExecStart", "--value"],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        env=env,
+    )
+    exec_text = show_proc.stdout.strip()
+    check(
+        show_proc.returncode == 0 and "/usr/bin/workbuddy2api __serve" in exec_text,
+        "service ExecStart",
+        exec_text or "unavailable",
+    )
+
+    db_url = (values.get("ADMIN_DATABASE_URL") or "") if values else ""
+    if db_url.startswith("sqlite:///"):
+        db_path = Path(db_url.removeprefix("sqlite:///"))
+        db_exists = db_path.is_file()
+        db_detail = str(db_path)
+        if db_exists and service_user is not None:
+            db_stat = db_path.stat()
+            db_detail += f" uid={db_stat.st_uid} size={db_stat.st_size}"
+            db_exists = db_stat.st_uid == service_user.pw_uid and db_stat.st_size > 0
+        check(db_exists, "SQLite database", db_detail)
+    elif db_url:
+        check(True, "database", "external database configured")
+    elif config_ok:
+        check(False, "database", "ADMIN_DATABASE_URL missing")
+
+    host = (values.get("ADMIN_HOST") or "127.0.0.1") if values else "127.0.0.1"
+    port = (values.get("ADMIN_PORT") or "8790") if values else "8790"
+    probe_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else str(host)
+    base_url = f"http://{probe_host}:{port}"
+
+    try:
+        with urllib.request.urlopen(f"{base_url}/api/app/version", timeout=4) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+            remote_version = str(payload.get("version") or "")
+            check(
+                response.status == 200 and remote_version == VERSION,
+                "HTTP version endpoint",
+                f"{base_url} -> {remote_version or 'unknown'}",
+            )
+    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
+        check(False, "HTTP version endpoint", f"{base_url} -> {exc}")
+
+    try:
+        with urllib.request.urlopen(f"{base_url}/admin", timeout=4) as response:
+            check(response.status == 200, "admin page", f"HTTP {response.status}")
+    except (urllib.error.URLError, TimeoutError) as exc:
+        check(False, "admin page", str(exc))
+
+    print()
+    if failures:
+        print(f"Doctor result: {failures} failure(s)")
+        return 1
+    print("Doctor result: all checks passed")
+    return 0
+
+
+def _doctor() -> int:
+    if os.geteuid() == 0:
+        return _doctor_root()
+
+    sudo = shutil.which("sudo")
+    if not sudo:
+        raise SystemExit("doctor requires administrator privileges; run: sudo workbuddy2api doctor")
+
+    return subprocess.run(
+        [sudo, sys.executable, "__doctor"],
+        check=False,
+        env=_external_command_env(),
+    ).returncode
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="workbuddy2api",
@@ -206,6 +358,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "credentials",
         help="show the generated admin URL, username and password",
     )
+    commands.add_parser(
+        "doctor",
+        help="run read-only checks for the packaged Linux service",
+    )
 
     run = commands.add_parser("run", help="run in the foreground (advanced/debugging)")
     run.add_argument(
@@ -221,11 +377,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
-    # Internal entries used only by the package itself. Keep them out of -h.
     if len(sys.argv) >= 2 and sys.argv[1] == "__serve":
         return _run_server()
     if len(sys.argv) >= 2 and sys.argv[1] == "__credentials":
         return _print_credentials()
+    if len(sys.argv) >= 2 and sys.argv[1] == "__doctor":
+        return _doctor_root()
 
     parser = _build_parser()
     args = parser.parse_args()
@@ -239,6 +396,9 @@ def main() -> int:
 
     if args.command == "credentials":
         return _credentials()
+
+    if args.command == "doctor":
+        return _doctor()
 
     if args.command == "run":
         return _run_server(

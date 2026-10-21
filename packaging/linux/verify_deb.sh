@@ -74,6 +74,7 @@ printf '%s\n' "$cli_help" | grep -q 'run' || fail "CLI help does not list foregr
 plain_help="$(workbuddy2api)"
 printf '%s\n' "$plain_help" | grep -q 'service' || fail "plain CLI should display help"
 printf '%s\n' "$plain_help" | grep -q 'credentials' || fail "CLI help does not list credentials"
+printf '%s\n' "$plain_help" | grep -q 'doctor' || fail "CLI help does not list doctor"
 printf '%s\n' "$plain_help" | grep -q 'ADMIN_JWT_SECRET 未设置' && fail "plain CLI must not start the server"
 printf '%s\n' "$plain_help" | grep -q "Can't connect to MySQL" && fail "plain CLI must not start the server"
 
@@ -101,6 +102,11 @@ systemctl cat "$service" | grep -q '^User=workbuddy2api$' || fail "service does 
 systemctl cat "$service" | grep -q '^ExecStart=/usr/bin/workbuddy2api __serve$' || fail "service ExecStart is incorrect"
 
 wait_http
+
+echo "== doctor CLI =="
+doctor_output="$(workbuddy2api doctor)"
+printf '%s\n' "$doctor_output"
+printf '%s\n' "$doctor_output" | grep -q '^Doctor result: all checks passed$' || fail "doctor did not pass"
 
 echo "== service CLI wrapper =="
 status_output="$(LD_LIBRARY_PATH="/tmp/workbuddy2api-fake-mei" LD_LIBRARY_PATH_ORIG="" workbuddy2api service status 2>&1)" || status_rc=$?

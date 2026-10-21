@@ -215,13 +215,14 @@ workbuddy2api credentials
 ```bash
 workbuddy2api -h
 workbuddy2api credentials
+workbuddy2api doctor
 workbuddy2api service start
 workbuddy2api service restart
 workbuddy2api service status
 workbuddy2api service stop
 ```
 
-`start/restart/stop` 在普通用户下会通过 `sudo systemctl` 执行；`status` 可直接查看。需要前台调试时可使用 `workbuddy2api run --config PATH`。服务日志仍可通过 `sudo journalctl -u workbuddy2api -f` 查看。
+`doctor` 会执行只读诊断，检查配置权限、systemd、服务状态、SQLite 与 HTTP 健康状态；必要时会请求 sudo，但不会显示后台密码或 JWT。`start/restart/stop` 在普通用户下会通过 `sudo systemctl` 执行；`status` 可直接查看。需要前台调试时可使用 `workbuddy2api run --config PATH`。服务日志仍可通过 `sudo journalctl -u workbuddy2api -f` 查看。
 
 ## Linux Docker 部署
 
