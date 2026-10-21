@@ -93,6 +93,7 @@ scripts/*.py
 # 例外：双端构建脚本属于产品代码，打包流程直接依赖它们。
 !scripts/build_desktop.py
 !scripts/build_android.py
+!scripts/build_linux_deb.py
 
 # ===== 强制保留（即便以点开头也要提交） =====
 !.gitignore

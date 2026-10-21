@@ -39,6 +39,7 @@
 - [项目架构与运行模式](#项目架构与运行模式)
 - [项目结构](#项目结构)
 - [Windows 与 Android](#windows-与-android)
+- [Linux DEB 安装](#linux-deb-安装)
 - [Linux Docker 部署](#linux-docker-部署)
 - [源码运行](#源码运行)
 - [账号管理与日常使用](#账号管理与日常使用)
@@ -102,6 +103,9 @@ workbuddy2api/
 ├── .env.example                 # 环境配置模板，不含真实部署凭证
 ├── requirements.txt             # 后端运行依赖
 ├── requirements-desktop*.txt    # Windows 构建依赖及锁定清单
+├── requirements-linux-build.txt  # Linux DEB 构建依赖
+├── linux_entry.py                # Linux 独立服务入口
+├── packaging/linux/              # systemd、DEB 脚本与 PyInstaller 配置
 ├── Dockerfile
 ├── docker-compose.yml           # 默认 admin；converter 为可选 profile
 ├── build.bat / build.py          # 统一版本的一键 EXE + APK 构建
@@ -149,7 +153,7 @@ workbuddy2api/
 │   ├── web/                     # 手机布局、设置与原生桥接
 │   └── README.md
 ├── scripts/                     # 用户可用脚本，保留在仓库
-│   ├── build_desktop.py / build_android.py
+│   ├── build_desktop.py / build_android.py / build_linux_deb.py
 │   ├── daemon.ps1 / watchdog.sh # Windows / Linux 服务守护
 │   ├── export_credential_key.py # 生成私有的官方凭证加密配置
 │   ├── asar_grep.py / asar_slice.py
@@ -179,6 +183,35 @@ workbuddy2api/
 Android 后台稳定运行需要允许通知、后台运行及取消电池优化。设置页可检查服务、授权、电池和后台限制状态；系统强行停止应用后仍需重新打开。
 
 新版 Windows 官方客户端导出的加密原始 `.info` 无法直接在未配置解密密钥的安卓端解密。迁移时请在电脑账号管理页选择导出“系统明文备份”，或在手机使用手机号登录和 `/join` 授权。明文备份包含账号凭证，请妥善保管。
+
+## Linux DEB 安装
+
+正式 Release 可提供适用于 **Debian 12 / Ubuntu 22.04+ x86_64** 的独立 `.deb`。安装包内置 Python 运行时和项目依赖，默认使用 SQLite 与进程内限流，目标机器无需额外安装 Python、pip、MySQL 或 Redis。
+
+```bash
+sudo apt install ./WorkBuddy2API-1.11.1-linux-amd64.deb
+sudo systemctl status workbuddy2api
+```
+
+首次安装会创建专用的 `workbuddy2api` 系统用户，并生成随机后台密码与 JWT 密钥。配置和数据分别保存在：
+
+```text
+/etc/workbuddy2api/workbuddy2api.env
+/var/lib/workbuddy2api/workbuddy.db
+```
+
+使用 root 权限查看首次生成的后台登录信息：
+
+```bash
+sudo cat /etc/workbuddy2api/workbuddy2api.env
+```
+
+访问 `http://服务器IP:8790/admin`。升级时直接安装新版本 DEB；程序文件会更新，但 `/etc/workbuddy2api/` 配置和 `/var/lib/workbuddy2api/` 数据会保留。服务由 systemd 管理：
+
+```bash
+sudo systemctl restart workbuddy2api
+sudo journalctl -u workbuddy2api -f
+```
 
 ## Linux Docker 部署
 
@@ -596,7 +629,7 @@ CC Switch 中对应填写 Anthropic 服务地址、后台 API Key 和模型。�
 
 - [协议逆向、实现说明与历史排障报告](docs/protocol-reference.md)
 - [账号调度、出口风险与维护任务加固](docs/2api-increment-risk-scheduling.md)
-- [EXE / APK 构建与发布](BUILD.md)：根目录 `build.bat` 可统一构建两端
+- [EXE / APK / Linux DEB 构建与发布](BUILD.md)：Windows/Android 使用根目录构建脚本，Linux DEB 使用独立构建脚本与 GitHub Actions
 - [通用工具脚本](scripts/README.md)：守护进程、凭证配置与 ASAR 工具
 - [1.0.4 更新公告](docs/RELEASE_NOTES_1.0.4.md)
 - [1.0.3 更新公告](docs/RELEASE_NOTES_1.0.3.md)

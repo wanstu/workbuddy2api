@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl daemon-reload >/dev/null 2>&1 || true
+fi
+
+if [ "${1:-}" = "purge" ]; then
+  rm -rf /etc/workbuddy2api
+  echo "WorkBuddy2API: configuration removed; data in /var/lib/workbuddy2api was preserved."
+fi
+
+exit 0

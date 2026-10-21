@@ -1,0 +1,81 @@
+name: Build Linux deb
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+          architecture: x64
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-linux-build.txt
+
+      - name: Verify release tag matches application version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          version="$(python -c 'import json; print(json.load(open("desktop/version.json", encoding="utf-8"))["version"])')"
+          test "$GITHUB_REF_NAME" = "v$version" || {
+            echo "Tag $GITHUB_REF_NAME does not match desktop/version.json ($version)" >&2
+            exit 1
+          }
+
+      - name: Install build dependencies
+        run: python -m pip install -r requirements-linux-build.txt
+
+      - name: Build Debian package
+        run: python scripts/build_linux_deb.py
+
+      - name: Install and smoke test package
+        shell: bash
+        run: |
+          sudo dpkg -i dist/WorkBuddy2API-*-linux-amd64.deb
+          test "$(/usr/bin/workbuddy2api --version)" =             "$(python -c 'import json; print(json.load(open("desktop/version.json", encoding="utf-8"))["version"])')"
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8790/admin >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          sudo systemctl status workbuddy2api.service --no-pager || true
+          sudo journalctl -u workbuddy2api.service -n 100 --no-pager || true
+          exit 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WorkBuddy2API-linux-amd64
+          path: |
+            dist/WorkBuddy2API-*-linux-amd64.deb
+            dist/WorkBuddy2API-*-linux-amd64.deb.sha256
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: WorkBuddy2API-linux-amd64
+          path: dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true

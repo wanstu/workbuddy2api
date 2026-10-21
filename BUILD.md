@@ -1,4 +1,4 @@
-# 一键构建 Windows EXE 和 Android APK
+# Windows EXE、Android APK 和 Linux DEB 构建
 
 在 Windows x64 上双击根目录 `build.bat`，或在终端运行：
 
@@ -89,3 +89,34 @@ Get-Content dist\android\WorkBuddy2API-1.0.4-android-arm64.apk.sha256
 ```
 
 核对每个安装包的计算结果与对应校验文件一致，并查看 `dist/build-1.0.4.json` 确认两端版本、文件大小及 SHA256。回归测试保留在维护者本地，不随源码发布。
+
+
+## Linux Debian package
+
+Linux DEB 与 Windows/Android 使用同一个 `desktop/version.json` 版本号，但必须在 Linux x86_64 上构建。推荐使用 Debian 12、Ubuntu 22.04 或仓库自带的 GitHub Actions。
+
+本地构建：
+
+```bash
+python3 -m venv .linux-build
+. .linux-build/bin/activate
+python -m pip install -r requirements-linux-build.txt
+python scripts/build_linux_deb.py
+```
+
+成功后生成：
+
+```text
+dist/WorkBuddy2API-1.11.1-linux-amd64.deb
+dist/WorkBuddy2API-1.11.1-linux-amd64.deb.sha256
+```
+
+构建脚本先使用临时 SQLite 数据库执行运行时检查，再用 PyInstaller 冻结 Python 和应用依赖，最后通过 `dpkg-deb` 生成安装包。DEB 内包含：
+
+- `/usr/bin/workbuddy2api`：独立服务程序；
+- `/lib/systemd/system/workbuddy2api.service`：systemd 服务；
+- `/usr/share/workbuddy2api/workbuddy2api.env.example`：配置示例。
+
+首次安装由 `postinst` 创建 `workbuddy2api` 系统用户、`/etc/workbuddy2api/workbuddy2api.env`、随机后台密码/JWT 密钥和 `/var/lib/workbuddy2api` 数据目录。升级不会覆盖已有配置或 SQLite 数据。
+
+`.github/workflows/linux-deb.yml` 在 Ubuntu 22.04 上重复执行相同构建，并实际安装产物、检查 `workbuddy2api --version` 和访问 `http://127.0.0.1:8790/admin`。推送 `v*` Tag 时，验证 Tag 与 `desktop/version.json` 一致后把 DEB 与 SHA256 附加到同一个 GitHub Release。

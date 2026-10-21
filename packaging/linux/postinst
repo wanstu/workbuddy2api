@@ -1,0 +1,49 @@
+#!/bin/sh
+set -e
+
+case "${1:-}" in
+  configure)
+    if ! getent group workbuddy2api >/dev/null 2>&1; then
+      addgroup --system workbuddy2api >/dev/null
+    fi
+    if ! getent passwd workbuddy2api >/dev/null 2>&1; then
+      adduser --system         --ingroup workbuddy2api         --home /var/lib/workbuddy2api         --no-create-home         --shell /usr/sbin/nologin         workbuddy2api >/dev/null
+    fi
+
+    install -d -o workbuddy2api -g workbuddy2api -m 0750 /var/lib/workbuddy2api
+    install -d -o root -g root -m 0755 /etc/workbuddy2api
+
+    config=/etc/workbuddy2api/workbuddy2api.env
+    if [ ! -e "$config" ]; then
+      admin_password="$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')"
+      jwt_secret="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
+      umask 077
+      cat >"$config" <<EOF
+ADMIN_HOST=0.0.0.0
+ADMIN_PORT=8790
+ADMIN_DATABASE_URL=sqlite:////var/lib/workbuddy2api/workbuddy.db
+ADMIN_REDIS_URL=
+ADMIN_GATEWAY_LIMIT_BACKEND=memory
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=$admin_password
+ADMIN_JWT_SECRET=$jwt_secret
+ADMIN_DEV_TOOLS=0
+EOF
+      chown root:root "$config"
+      chmod 0600 "$config"
+      echo "WorkBuddy2API: created $config with random admin credentials."
+      echo "WorkBuddy2API: root can inspect it with: sudo cat $config"
+    fi
+
+    chown workbuddy2api:workbuddy2api /var/lib/workbuddy2api
+    chmod 0750 /var/lib/workbuddy2api
+
+    if command -v systemctl >/dev/null 2>&1; then
+      systemctl daemon-reload >/dev/null 2>&1 || true
+      systemctl enable workbuddy2api.service >/dev/null 2>&1 || true
+      systemctl restart workbuddy2api.service >/dev/null 2>&1 ||         systemctl start workbuddy2api.service >/dev/null 2>&1 || true
+    fi
+    ;;
+esac
+
+exit 0
