@@ -66,6 +66,20 @@ sudo apt-get install -y "$deb"
 
 command -v workbuddy2api >/dev/null || fail "installed binary not on PATH"
 [ "$(workbuddy2api --version)" = "$version" ] || fail "binary version mismatch"
+
+echo "== direct CLI must not fall back to insecure development defaults =="
+set +e
+manual_output="$(timeout 5 workbuddy2api --host 127.0.0.1 --port 8792 2>&1)"
+manual_status=$?
+set -e
+[ "$manual_status" -ne 0 ] || fail "plain CLI unexpectedly started without readable package config"
+printf '%s\n' "$manual_output" | grep -q 'installed configuration exists but is not readable' || {
+  printf '%s\n' "$manual_output" >&2
+  fail "plain CLI did not explain that package config is private"
+}
+printf '%s\n' "$manual_output" | grep -q 'ADMIN_JWT_SECRET 未设置' && fail "plain CLI fell back to weak JWT defaults"
+printf '%s\n' "$manual_output" | grep -q "Can't connect to MySQL" && fail "plain CLI fell back to MySQL defaults"
+
 getent passwd workbuddy2api >/dev/null || fail "service user missing"
 getent group workbuddy2api >/dev/null || fail "service group missing"
 getent passwd workbuddy2api | grep -q ':/usr/sbin/nologin$' || fail "service user must use nologin"
@@ -100,6 +114,38 @@ token="$(printf '%s' "$login_json" | python -c 'import json,sys; print(json.load
 curl --fail --silent -H "X-Admin-Token: $token" "$base_url/api/accounts" >/dev/null
 bad_code="$(curl --silent --output /dev/null --write-out '%{http_code}' -F "username=$admin_user" -F 'password=definitely-wrong' "$base_url/api/login")"
 [ "$bad_code" = "401" ] || fail "wrong password should return 401"
+
+echo "== direct CLI with explicit readable config =="
+cli_config="$(mktemp)"
+cli_log="$(mktemp)"
+cli_db="/tmp/workbuddy2api-cli-$.db"
+sudo cat "$config" >"$cli_config"
+sed -i "s#^ADMIN_DATABASE_URL=.*#ADMIN_DATABASE_URL=sqlite:///$cli_db#" "$cli_config"
+chmod 0600 "$cli_config"
+workbuddy2api --config "$cli_config" --host 127.0.0.1 --port 8792 >"$cli_log" 2>&1 &
+cli_pid=$!
+cli_ready=0
+for _ in $(seq 1 30); do
+  if curl --fail --silent http://127.0.0.1:8792/admin >/dev/null; then
+    cli_ready=1
+    break
+  fi
+  if ! kill -0 "$cli_pid" 2>/dev/null; then
+    break
+  fi
+  sleep 1
+done
+if [ "$cli_ready" -ne 1 ]; then
+  cat "$cli_log" >&2 || true
+  kill "$cli_pid" >/dev/null 2>&1 || true
+  wait "$cli_pid" >/dev/null 2>&1 || true
+  fail "CLI did not start with an explicit readable config"
+fi
+cli_login="$(curl --fail --silent -F "username=$admin_user" -F "password=$admin_password" http://127.0.0.1:8792/api/login)"
+printf '%s' "$cli_login" | python -c 'import json,sys; assert json.load(sys.stdin).get("token")'
+kill "$cli_pid"
+wait "$cli_pid" >/dev/null 2>&1 || true
+rm -f "$cli_config" "$cli_log" "$cli_db" "$cli_db-shm" "$cli_db-wal"
 
 db="$data_dir/workbuddy.db"
 if ! sudo test -f "$db"; then
