@@ -5,6 +5,8 @@ not need Python, pip, a virtualenv, MySQL, or Redis for the default SQLite setup
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+import gzip
 import hashlib
 import json
 import os
@@ -36,6 +38,24 @@ def version() -> str:
     if len(parts) != 3 or not all(part.isdigit() for part in parts):
         raise SystemExit("desktop/version.json must contain a stable x.y.z version")
     return value
+
+
+def changelog_text(pkg_version: str) -> str:
+    try:
+        epoch = int(subprocess.check_output(
+            ["git", "log", "-1", "--format=%ct"],
+            cwd=ROOT,
+            text=True,
+        ).strip())
+    except (OSError, ValueError, subprocess.CalledProcessError):
+        epoch = 0
+    date = datetime.fromtimestamp(epoch, timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")
+    return f"""workbuddy2api ({pkg_version}) unstable; urgency=medium
+
+  * Package upstream WorkBuddy2API {pkg_version} for Linux amd64.
+
+ -- WorkBuddy2API contributors <noreply@github.com>  {date}
+"""
 
 
 def control_text(pkg_version: str) -> str:
@@ -105,6 +125,10 @@ def main() -> None:
     )
     copy_file(ROOT / "LICENSE", stage / "usr/share/doc/workbuddy2api/copyright", 0o644)
     copy_file(ROOT / "README.md", stage / "usr/share/doc/workbuddy2api/README.md", 0o644)
+    changelog = stage / "usr/share/doc/workbuddy2api/changelog.gz"
+    changelog.parent.mkdir(parents=True, exist_ok=True)
+    changelog.write_bytes(gzip.compress(changelog_text(pkg_version).encode("utf-8"), mtime=0))
+    changelog.chmod(0o644)
 
     (debian / "control").write_text(control_text(pkg_version), encoding="utf-8")
     for name in ("postinst", "prerm", "postrm"):

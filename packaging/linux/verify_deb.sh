@@ -44,6 +44,7 @@ contents="$(dpkg-deb --contents "$deb")"
 printf '%s\n' "$contents" | grep -q './usr/bin/workbuddy2api$' || fail "binary missing from package"
 printf '%s\n' "$contents" | grep -q './lib/systemd/system/workbuddy2api.service$' || fail "systemd unit missing"
 printf '%s\n' "$contents" | grep -q './usr/share/workbuddy2api/workbuddy2api.env.example$' || fail "config example missing"
+printf '%s\n' "$contents" | grep -q './usr/share/doc/workbuddy2api/changelog.gz$' || fail "Debian changelog missing"
 
 control_dir="$(mktemp -d)"
 upgrade_root="$(mktemp -d)"
