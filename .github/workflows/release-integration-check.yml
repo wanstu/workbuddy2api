@@ -1,0 +1,28 @@
+name: Verify Linux reusable release integration
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    uses: ./.github/workflows/linux-deb.yml
+
+  artifact:
+    needs: linux
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: WorkBuddy2API-linux-amd64
+          path: dist
+      - name: Verify artifact pair
+        shell: bash
+        run: |
+          deb="$(find dist -maxdepth 1 -name 'WorkBuddy2API-*-linux-amd64.deb' -type f -print -quit)"
+          test -n "$deb"
+          test -f "$deb.sha256"
+          cd dist
+          sha256sum -c "$(basename "$deb").sha256"
