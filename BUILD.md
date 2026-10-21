@@ -107,8 +107,8 @@ python scripts/build_linux_deb.py
 成功后生成：
 
 ```text
-dist/WorkBuddy2API-1.11.1-linux-amd64.deb
-dist/WorkBuddy2API-1.11.1-linux-amd64.deb.sha256
+dist/WorkBuddy2API-<version>-linux-amd64.deb
+dist/WorkBuddy2API-<version>-linux-amd64.deb.sha256
 ```
 
 构建脚本先使用临时 SQLite 数据库执行运行时检查，再用 PyInstaller 冻结 Python 和应用依赖，最后通过 `dpkg-deb` 生成安装包。DEB 内包含：
@@ -119,4 +119,4 @@ dist/WorkBuddy2API-1.11.1-linux-amd64.deb.sha256
 
 首次安装由 `postinst` 创建 `workbuddy2api` 系统用户、`/etc/workbuddy2api/workbuddy2api.env`、随机后台密码/JWT 密钥和 `/var/lib/workbuddy2api` 数据目录。升级不会覆盖已有配置或 SQLite 数据。
 
-`.github/workflows/linux-deb.yml` 在 Ubuntu 22.04 上重复执行相同构建，并实际安装产物、检查 `workbuddy2api --version` 和访问 `http://127.0.0.1:8790/admin`。推送 `v*` Tag 时，验证 Tag 与 `desktop/version.json` 一致后把 DEB 与 SHA256 附加到同一个 GitHub Release。
+`.github/workflows/linux-deb.yml` 在 Ubuntu 22.04 上执行构建、Lint、安装、后台登录、真实 dpkg 升级、移除/重装/清除以及 Debian 12 兼容性测试。正式 `v*` Tag 仍由现有 `desktop-release.yml` 统一编排；只有 Windows 与 Linux 构建都成功后，才由同一个 Release job 一次性上传 EXE、DEB 与各自 SHA256，避免并发修改同一个 GitHub Release。

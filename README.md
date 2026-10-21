@@ -189,7 +189,7 @@ Android 后台稳定运行需要允许通知、后台运行及取消电池优化
 正式 Release 可提供适用于 **Debian 12 / Ubuntu 22.04+ x86_64** 的独立 `.deb`。安装包内置 Python 运行时和项目依赖，默认使用 SQLite 与进程内限流，目标机器无需额外安装 Python、pip、MySQL 或 Redis。
 
 ```bash
-sudo apt install ./WorkBuddy2API-1.11.1-linux-amd64.deb
+sudo apt install ./WorkBuddy2API-<version>-linux-amd64.deb
 sudo systemctl status workbuddy2api
 ```
 

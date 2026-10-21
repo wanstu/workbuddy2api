@@ -1,11 +1,9 @@
 name: Build Linux deb
 
 on:
+  workflow_call:
   workflow_dispatch:
   pull_request:
-  push:
-    tags:
-      - "v*"
 
 permissions:
   contents: read
@@ -25,36 +23,53 @@ jobs:
             requirements.txt
             requirements-linux-build.txt
 
-      - name: Verify release tag matches application version
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: bash
+      - name: Install build and package validation dependencies
         run: |
-          version="$(python -c 'import json; print(json.load(open("desktop/version.json", encoding="utf-8"))["version"])')"
-          test "$GITHUB_REF_NAME" = "v$version" || {
-            echo "Tag $GITHUB_REF_NAME does not match desktop/version.json ($version)" >&2
-            exit 1
-          }
-
-      - name: Install build dependencies
-        run: python -m pip install -r requirements-linux-build.txt
+          python -m pip install -r requirements-linux-build.txt
+          sudo apt-get update
+          sudo apt-get install -y lintian
 
       - name: Build Debian package
         run: python scripts/build_linux_deb.py
 
-      - name: Install and smoke test package
+      - name: Lint Debian package
+        shell: bash
+        run: lintian --fail-on error dist/WorkBuddy2API-*-linux-amd64.deb
+
+      - name: Verify install, login, upgrade, remove and purge lifecycle
         shell: bash
         run: |
-          sudo dpkg -i dist/WorkBuddy2API-*-linux-amd64.deb
-          test "$(/usr/bin/workbuddy2api --version)" =             "$(python -c 'import json; print(json.load(open("desktop/version.json", encoding="utf-8"))["version"])')"
-          for i in {1..30}; do
-            if curl --fail --silent http://127.0.0.1:8790/admin >/dev/null; then
-              exit 0
-            fi
-            sleep 1
-          done
-          sudo systemctl status workbuddy2api.service --no-pager || true
-          sudo journalctl -u workbuddy2api.service -n 100 --no-pager || true
-          exit 1
+          version="$(python -c 'import json; print(json.load(open("desktop/version.json", encoding="utf-8"))["version"])')"
+          bash packaging/linux/verify_deb.sh "dist/WorkBuddy2API-$version-linux-amd64.deb" "$version"
+
+      - name: Verify Debian 12 compatibility
+        shell: bash
+        run: |
+          version="$(python -c 'import json; print(json.load(open("desktop/version.json", encoding="utf-8"))["version"])')"
+          docker run --rm             -e EXPECTED_VERSION="$version"             -v "$PWD:/src:ro"             debian:12-slim             bash -lc '
+              set -e
+              apt-get update >/dev/null
+              apt-get install -y "/src/dist/WorkBuddy2API-$EXPECTED_VERSION-linux-amd64.deb" curl >/dev/null
+              test "$(/usr/bin/workbuddy2api --version)" = "$EXPECTED_VERSION"
+              set -a
+              . /etc/workbuddy2api/workbuddy2api.env
+              set +a
+              export ADMIN_HOST=127.0.0.1 ADMIN_PORT=8791 HOME=/var/lib/workbuddy2api
+              /usr/bin/workbuddy2api >/tmp/workbuddy2api.log 2>&1 &
+              pid=$!
+              trap "kill $pid >/dev/null 2>&1 || true" EXIT
+              i=0
+              until curl --fail --silent http://127.0.0.1:8791/admin >/dev/null; do
+                i=$((i+1))
+                if [ "$i" -ge 30 ]; then
+                  cat /tmp/workbuddy2api.log
+                  exit 1
+                fi
+                sleep 1
+              done
+              curl --fail --silent http://127.0.0.1:8791/api/app/version |
+                grep -q "\"version\":\"$EXPECTED_VERSION\""
+            '
 
       - uses: actions/upload-artifact@v4
         with:
@@ -62,21 +77,3 @@ jobs:
           path: |
             dist/WorkBuddy2API-*-linux-amd64.deb
             dist/WorkBuddy2API-*-linux-amd64.deb.sha256
-
-  release:
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: WorkBuddy2API-linux-amd64
-          path: dist
-
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*
-          generate_release_notes: true
-          fail_on_unmatched_files: true
